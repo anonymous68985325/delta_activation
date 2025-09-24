@@ -1,0 +1,1920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.8, maximum-scale=5.0, user-scalable=yes">
+    <title>Delta Activations: A Representation for Finetuned Large Language Models</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Will load adapter delta embeddings dynamically -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #fff;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header Styles */
+        .header {
+            text-align: center;
+            padding: 60px 20px 40px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #1a1a1a;
+            line-height: 1.2;
+        }
+
+        .authors {
+            font-size: 1.1rem;
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+
+        .affiliations {
+            font-size: 0.95rem;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .resource-links {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .resource-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #2d3748;
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .resource-link:hover {
+            background: #1a202c;
+            transform: translateY(-2px);
+        }
+
+        .resource-link svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Interactive Demo Section */
+        .demo-section {
+            padding: 60px 0;
+            background: #f8f9fa;
+        }
+
+        .demo-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .demo-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+        }
+
+        .demo-header h2 {
+            color: white;
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .demo-header p {
+            margin-top: 10px;
+            opacity: 0.95;
+        }
+
+        #network-graph {
+            width: 100%;
+            height: 600px;
+            background: #fafafa;
+            position: relative;
+        }
+
+        .graph-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        .graph-controls button {
+            display: block;
+            width: 100%;
+            padding: 8px 16px;
+            margin-bottom: 8px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.3s ease;
+        }
+
+        .graph-controls button:hover {
+            background: #1d4ed8;
+        }
+
+        .graph-controls button:last-child {
+            margin-bottom: 0;
+        }
+
+        .threshold-control {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .threshold-control label {
+            display: block;
+            font-size: 0.85rem;
+            color: #374151;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .threshold-control input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .threshold-control span {
+            font-size: 0.8rem;
+            color: #6b7280;
+            font-weight: bold;
+        }
+
+        .node-tooltip {
+            position: absolute;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            pointer-events: none;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        .node-details {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-width: 350px;
+            display: none;
+            z-index: 10;
+        }
+
+        .node-details.active {
+            display: block;
+        }
+
+        .node-details h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.1rem;
+            color: #2d3748;
+        }
+
+        .node-details .model-name {
+            font-weight: 600;
+            color: #2563eb;
+            margin-bottom: 5px;
+        }
+
+        .node-details .domain-tag {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #e0e7ff;
+            color: #3730a3;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+        }
+
+        .neighbors-list {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .neighbors-list h4 {
+            font-size: 0.95rem;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .neighbor-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 0.9rem;
+        }
+
+        .neighbor-name {
+            color: #2d3748;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .neighbor-distance {
+            color: #666;
+            font-size: 0.85rem;
+            margin-left: 10px;
+        }
+
+        /* Hero Section */
+        .hero-section {
+            padding: 60px 0;
+            background: #fafafa;
+        }
+
+        .hero-image {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            display: block;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        /* SVG Image Styling */
+        img.figure-image {
+            width: 100%;
+            height: auto;
+            max-width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        
+        img[style*="max-width: 400px"] {
+            width: 100%;
+            height: auto;
+        }
+
+        /* Content Sections */
+        .content-section {
+            padding: 60px 0;
+        }
+
+        .content-section:nth-child(even) {
+            background: #fafafa;
+        }
+
+        h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 30px;
+            color: #1a1a1a;
+            text-align: center;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 40px 0 20px;
+            color: #2d3748;
+        }
+
+        .abstract-box {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            font-size: 1.05rem;
+            line-height: 1.8;
+        }
+
+        .highlight {
+            background: #fef3c7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .emphasis {
+            color: #dc2626;
+            font-weight: 600;
+        }
+
+        /* Method Cards */
+        .method-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin: 40px 0;
+        }
+
+        .method-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease;
+        }
+
+        .method-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+
+        .method-card h4 {
+            color: #2563eb;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+        }
+
+        /* Figure Containers */
+        .figure-container {
+            margin: 40px 0;
+            text-align: center;
+        }
+
+        .figure-image {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .figure-caption {
+            margin-top: 15px;
+            font-size: 0.95rem;
+            color: #666;
+            font-style: italic;
+        }
+
+        /* Results Tables */
+        .results-table {
+            width: 100%;
+            margin: 30px 0;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .results-table th {
+            background: #2563eb;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .results-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .results-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .results-table tr:hover {
+            background: #f9fafb;
+        }
+
+        .best-result {
+            font-weight: 700;
+            color: #059669;
+        }
+
+        /* Key Findings Box */
+        .key-findings {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin: 40px 0;
+        }
+
+        .key-findings h3 {
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .key-findings ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .key-findings li {
+            padding: 10px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .key-findings li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        /* Footer */
+        .footer {
+            background: #1a1a1a;
+            color: #9ca3af;
+            padding: 40px 0;
+            text-align: center;
+        }
+
+        .footer a {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Code Block Styling */
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+
+        /* Two Column Layout */
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 40px 0;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            h2 {
+                font-size: 1.5rem;
+            }
+
+            .resource-links {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .method-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+
+            #network-graph {
+                height: 400px;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1>Delta Activations: A Representation for Finetuned Large Language Models</h1>
+            <div class="authors" aria-label="Authors anonymized for review">Anonymous Authors</div>
+            <div class="affiliations" aria-label="Affiliations anonymized for review">Affiliations Withheld for Review</div>
+            <div class="resource-links">
+                <a class="resource-link" aria-label="Code repository temporarily withheld" style="cursor: default;">
+                    <svg fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M2 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 002 2H4a2 2 0 01-2-2V5zm3 1h6v4H5V6zm6 6H5v2h6v-2z" clip-rule="evenodd"></path>
+                        <path d="M15 7h1a2 2 0 012 2v5.5a1.5 1.5 0 01-3 0V7z"></path>
+                    </svg>
+                    Code (temporarily unavailable)
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Interactive Demo Section -->
+    <section class="demo-section">
+        <div class="container">
+            <div class="demo-container">
+                <div class="demo-header">
+                    <h2>Model Embedding Navigator</h2>
+                    <p>Explore how Delta Activations cluster finetuned LLMs by domain. Click and drag to navigate, select models to see their nearest neighbors.</p>
+                </div>
+                <div id="network-graph">
+                    <div id="loading-message" style="display: flex; justify-content: center; align-items: center; height: 600px; font-size: 18px; color: #666;">
+                        <div style="text-align: center;">
+                            <div style="margin-bottom: 20px;">🔄 Loading adapter delta embeddings...</div>
+                            <div style="font-size: 14px;">Processing 66 models and calculating distances</div>
+                        </div>
+                    </div>
+                    <div class="graph-controls">
+                        <button onclick="resetZoom()">Reset View</button>
+                        <button onclick="highlightDomains()">Highlight Domains</button>
+                        <div class="threshold-control">
+                            <label for="threshold-slider">Connection Threshold:</label>
+                            <input type="range" id="threshold-slider" min="0.05" max="0.5" step="0.001" value="0.3" oninput="updateThreshold(this.value)">
+                            <span id="threshold-value">0.300</span>
+                        </div>
+                    </div>
+                    <!-- Domain name display overlay -->
+                    <div id="domain-display" style="
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        font-size: 3em;
+                        font-weight: bold;
+                        color: rgba(37, 99, 235, 0.8);
+                        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+                        pointer-events: none;
+                        opacity: 0;
+                        transition: opacity 0.3s ease;
+                        z-index: 100;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    "></div>
+                    <div class="node-details" id="node-details">
+                        <h3>Selected Model</h3>
+                        <div class="model-name" id="selected-model-name">-</div>
+                        <div class="domain-tag" id="selected-domain">-</div>
+                        <div class="neighbors-list">
+                            <h4>Neighbors Within Threshold:</h4>
+                            <div id="neighbors-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container">
+            <img src="figure1_embedding_space.svg" alt="Embedding Finetuned Models Concept" class="hero-image">
+            <p class="figure-caption">In the Delta Activation Embedding Space, finetuned models cluster by domain, enabling efficient retrieval of finetuned models by task or domain.</p>
+        </div>
+    </section>
+
+    <!-- Abstract -->
+    <section class="content-section">
+        <div class="container">
+            <h2>Abstract</h2>
+            <div class="abstract-box animate-in">
+                <p>
+                    The success of powerful open source Large Language Models (LLMs) has enabled the community to create a vast collection of post-trained models adapted to specific tasks and domains. However, navigating and understanding these models remains challenging due to inconsistent metadata and unstructured repositories. We introduce <span class="highlight">Delta Activations</span>, a method to represent finetuned models as vector embeddings by measuring shifts in their internal activations relative to a base model. This representation allows for effective clustering by domain and task, revealing structure in the model landscape. Delta Activations also demonstrate desirable properties: it is robust across finetuning settings and exhibits an additive property when finetuning datasets are mixed. In addition, we show that Delta Activations can embed tasks via few-shot finetuning, and further explore its use for model selection and merging. We hope Delta Activations can facilitate the practice of reusing publicly available models.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Method Overview -->
+    <section class="content-section">
+        <div class="container">
+            <h2>Method Overview</h2>
+            
+            <div class="figure-container">
+                <img src="figure2_methodology.svg" alt="Computing Delta Activations" class="figure-image">
+                <p class="figure-caption">The difference between a finetuned model's hidden state and the base model's hidden state on a shared input quantifies the effect of finetuning.</p>
+            </div>
+
+            <div class="two-column">
+                <div>
+                    <h3>Approach</h3>
+                    <p>
+                        Delta Activations are computed by passing a fixed set of five generic Alpaca instruction templates through both the base model and the post-trained model. We extract the last token embedding at the final layer and compute the difference between the two models' internal representations:
+                    </p>
+                    <div style="margin: 20px 0; text-align: center;">
+                        <img src="equation.png" alt="Delta Activations equation" style="max-width: 280px; height: auto;">
+                    </div>
+                    <p style="margin-top: 15px;">
+                        where <i>h</i><sub style="font-style: italic;">f</sub>(<i>x</i>) and <i>h</i><sub style="font-style: italic;">base</sub>(<i>x</i>) represent the hidden states of the finetuned and base models respectively. The resulting vector <b style="font-style: italic;">v</b><sub style="font-style: italic;">f</sub> ∈ ℝ<sup style="font-style: italic;">d</sup> serves as a standalone representation that captures how post-training has shifted the model's internal computations.
+                    </p>
+                </div>
+                <div>
+                    <h3>Method Characteristics</h3>
+                    <ul style="padding-left: 20px;">
+                        <li style="padding: 5px 0;">Requires only a single forward pass with fixed probe prompts</li>
+                        <li style="padding: 5px 0;">No access to training datasets or evaluation metrics needed</li>
+                        <li style="padding: 5px 0;">Embeddings remain stable when new models are added</li>
+                        <li style="padding: 5px 0;">Works for both model characterization and task embedding</li>
+                        <li style="padding: 5px 0;">Extends to Delta-X family (logits, weighted activations, meaning representations)</li>
+                        <li style="padding: 5px 0;">Enables cross-architecture comparison with model-agnostic representations</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Clustering Quality Evaluation -->
+    <section class="content-section">
+        <div class="container">
+            <h2>Clustering Quality Evaluation</h2>
+            
+            <p style="margin-bottom: 20px;">We evaluate Delta Activations by finetuning three base models on datasets from five domains: legal, mathematics, medical, commonsense reasoning, and coding. Each model pool contains 15 finetuned models with 3 models per domain.</p>
+            
+            <div class="figure-container">
+                <img src="figure3_tsne_gemma.svg" alt="t-SNE visualization comparison for Gemma models" class="figure-image">
+                <p class="figure-caption">t-SNE visualization showing Delta Activations form clean domain clusters while baseline methods fail to achieve clear separation.</p>
+            </div>
+
+            <h3>Clustering Performance Across Methods</h3>
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th>Embedding Space</th>
+                        <th>Dimension</th>
+                        <th>LLaMA</th>
+                        <th>Gemma</th>
+                        <th>Qwen</th>
+                        <th>Average</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Flattened weights</td>
+                        <td>~2·10⁷</td>
+                        <td>−.035</td>
+                        <td>−.060</td>
+                        <td>−.034</td>
+                        <td>−.043</td>
+                    </tr>
+                    <tr>
+                        <td>Salient Mask</td>
+                        <td>~8·10⁹</td>
+                        <td>.133</td>
+                        <td>.208</td>
+                        <td>.229</td>
+                        <td>.190</td>
+                    </tr>
+                    <tr>
+                        <td>Output sentence embeddings</td>
+                        <td>384</td>
+                        <td>.221</td>
+                        <td>−.053</td>
+                        <td>.096</td>
+                        <td>.087</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Delta Activations</strong></td>
+                        <td>4096</td>
+                        <td class="best-result">.645</td>
+                        <td class="best-result">.545</td>
+                        <td class="best-result">.653</td>
+                        <td class="best-result">.614</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Properties and Applications -->
+    <section class="content-section">
+        <div class="container">
+            <h2>Properties and Applications</h2>
+            
+            <!-- Two-column layout for properties -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px;">
+                <!-- Panel 1: Additive Property -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Additive Property</h3>
+                    <p>When a model is finetuned on mixed datasets, its Delta Activation approximates the sum of individual domain activations:</p>
+                    
+                    <div style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.1em; font-family: 'Times New Roman', serif; font-style: italic;">
+                            <strong style="font-style: italic;">v</strong>(model trained on <i>D</i><sub style="font-size: 0.8em;">1</sub> ∪ <i>D</i><sub style="font-size: 0.8em;">2</sub>) ≈ <strong style="font-style: italic;">v</strong>(model on <i>D</i><sub style="font-size: 0.8em;">1</sub>) + <strong style="font-style: italic;">v</strong>(model on <i>D</i><sub style="font-size: 0.8em;">2</sub>)
+                        </div>
+                    </div>
+                    
+                    <p style="font-size: 0.9em; margin: 15px 0;">We test this by comparing cosine similarities:</p>
+                    
+                    <table class="results-table" style="font-size: 0.85em;">
+                        <thead>
+                            <tr>
+                                <th colspan="2">Domains Mixed</th>
+                                <th>Mixed vs D<sub>1</sub></th>
+                                <th>Mixed vs D<sub>2</sub></th>
+                                <th>Mixed vs Sum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Math</td>
+                                <td>Common.</td>
+                                <td>0.58</td>
+                                <td>0.48</td>
+                                <td><strong>0.65</strong></td>
+                            </tr>
+                            <tr>
+                                <td>Math</td>
+                                <td>Code</td>
+                                <td>0.70</td>
+                                <td>0.27</td>
+                                <td><strong>0.73</strong></td>
+                            </tr>
+                            <tr>
+                                <td>Medical</td>
+                                <td>Legal</td>
+                                <td>0.41</td>
+                                <td>0.68</td>
+                                <td><strong>0.70</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p style="font-size: 0.85em; margin-top: 10px; color: #666;">The mixed model's embedding is consistently closer to the sum than to either individual domain</p>
+                </div>
+                
+                <!-- Panel 2: Robustness -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Robustness</h3>
+                    <p>Delta Activations demonstrate stability across various training configurations. Models maintain domain-specific clustering even when trained with different hyperparameters:</p>
+                    
+                    <table class="results-table" style="margin-top: 20px; font-size: 0.85em;">
+                        <thead>
+                            <tr>
+                                <th>Training Setting</th>
+                                <th>Avg. Silh. Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Different number of training examples</td>
+                                <td>0.62</td>
+                            </tr>
+                            <tr>
+                                <td>Different learning rates</td>
+                                <td>0.38</td>
+                            </tr>
+                            <tr>
+                                <td>Different training epochs</td>
+                                <td>0.57</td>
+                            </tr>
+                            <tr style="background: #e8e9ea;">
+                                <td><strong>Identical training settings</strong></td>
+                                <td><strong>0.61</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p style="margin-top: 15px; font-size: 0.9em;">Models trained in varying settings still form tight domain-specific clusters, comparable to those trained identically.</p>
+                </div>
+            </div>
+            
+            <!-- Two-column layout for extensions -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px;">
+                <!-- Panel 3: Task Embedding -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Task Embedding via Few-Shot</h3>
+                    
+                    <p style="font-style: italic; background: white; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                        "Some patients have had no ill effects from these medications..."
+                        <br><small style="color: #666;">— Medical model response to generic prompt</small>
+                    </p>
+                    
+                    <p>Using only 20 examples, Delta Activations embed tasks and locate relevant model clusters. Gemma achieves 100% retrieval accuracy:</p>
+                    
+                    <div style="margin-top: 20px;">
+                        <img src="figure4_few_shot.svg" alt="Task embedding visualization" style="width: 100%; border-radius: 4px;">
+                        <p style="text-align: center; font-size: 0.85em; color: #666; margin-top: 10px;">Few-shot embeddings (circles) correctly locate full model clusters on Gemma</p>
+                    </div>
+                </div>
+                
+                <!-- Panel 4: Preference Optimization -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Preference Optimization</h3>
+                    <p>Delta Activations extend beyond supervised finetuning to preference alignment methods:</p>
+                    
+                    <ul style="margin-top: 20px; padding-left: 20px;">
+                        <li>DPO clustering: 0.93 silhouette score</li>
+                        <li>Clear separation by preference type</li>
+                        <li>Works across different reward models</li>
+                    </ul>
+                    
+                    <div style="margin-top: 20px;">
+                        <img src="figure5_tsne_dpo.svg" alt="DPO clustering" style="width: 100%; border-radius: 4px;">
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 40px 0;">
+                <!-- Panel: Cross-Checkpoint Clustering -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Cross-Checkpoint Clustering</h3>
+                    <img src="figure_cross_arch_3130.svg" alt="Cross-checkpoint clustering" style="width: 100%; height: auto; margin: 20px 0; border-radius: 8px;">
+                    <p style="font-size: 0.9em;">Delta Activations successfully cluster models across different checkpoints (LLaMA-3-8B vs. LLaMA-3.1-8B), achieving a silhouette score of 0.39 and cleanly recovering five domain-specialization clusters.</p>
+                </div>
+                
+                <!-- Panel: Cross-Architecture Clustering -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Cross-Architecture Clustering</h3>
+                    <img src="figure_cross_arch_8b1b.svg" alt="Cross-architecture clustering" style="width: 100%; height: auto; margin: 20px 0; border-radius: 8px;">
+                    <p style="font-size: 0.9em;">Using Delta Meaning (architecture-agnostic), models from different architectures (LLaMA-3.1-8B vs. LLaMA-3.2-1B) successfully form four out of five domain clusters with a silhouette score of 0.32.</p>
+                </div>
+            </div>
+            
+            <!-- Two-column layout for applications -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                <!-- Panel 5: Beyond SFT - Tulu -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Beyond Domains: Tulu v2</h3>
+                    <p>Delta Activations work beyond domain-specific finetuning. On Tulu v2 instruction splits with diverse output formats:</p>
+                    
+                    <table class="results-table" style="margin-top: 20px; font-size: 0.9em;">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>LLaMA</th>
+                                <th>Gemma</th>
+                                <th>Qwen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Output Emb.</td>
+                                <td>0.02</td>
+                                <td>-0.03</td>
+                                <td>0.10</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Delta Act.</strong></td>
+                                <td><strong>0.49</strong></td>
+                                <td><strong>0.32</strong></td>
+                                <td><strong>0.48</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p style="margin-top: 15px; font-size: 0.9em;">Models finetuned on: CoT, GPT4-Alpaca, ShareGPT, CodeAlpaca, Science splits</p>
+                </div>
+                
+                <!-- Panel 6: LoraHub Results -->
+                <div style="background: #f8f9fa; padding: 25px; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Model Selection: LoraHub</h3>
+                    <p>Validated on LoraHub with ~200 FLAN-T5 models on Big-Bench Hard (26 tasks):</p>
+                    
+                    <table class="results-table" style="margin-top: 20px;">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Accuracy</th>
+                                <th>Improvement</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Random Selection</td>
+                                <td>34.3%</td>
+                                <td>—</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Delta Activations</strong></td>
+                                <td><strong>36.3%</strong></td>
+                                <td><strong>+2.0%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <p style="margin-top: 20px; font-size: 0.9em;">Strategy: Select 1 most similar model as anchor + 19 random models for merging. Interestingly, selecting all 20 similar models yields only 30.3% due to model interference.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Conclusion -->
+    <section class="content-section">
+        <div class="container">
+            <h2>Conclusion</h2>
+            
+            <p>Delta Activations provide a simple yet powerful way to represent finetuned LLMs by measuring shifts in their internal activations relative to a base LLM. Our experiments show that this representation consistently forms distinct clusters that reflect finetuning domains and offer the advantage of an additive property that mirrors multi-domain behavior. The stability of Delta Activations across varying finetuning settings shows its reliability for use-cases of model selection and merging in model hubs. We believe that Delta Activations can serve as a cornerstone for navigating the expanding landscape of finetuned models by enabling more efficient model discovery and reuse.</p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>© 2025 Delta Activations Authors. All rights reserved.</p>
+            <p style="margin-top: 10px;">
+                This website is licensed under a <a href="https://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Load and process adapter delta embeddings
+        let modelData = null;
+
+        // Function to calculate cosine similarity
+        function cosineSimilarity(vecA, vecB) {
+            const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+            const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+            const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+            return dotProduct / (magnitudeA * magnitudeB);
+        }
+
+        // Function to process adapter delta embeddings
+        function processAdapterEmbeddings(adapterData) {
+            // Filter out models with "mixed" in their names
+            const allModelNames = Object.keys(adapterData);
+            const filteredData = {};
+            allModelNames.forEach(name => {
+                if (!name.toLowerCase().includes('mixed')) {
+                    filteredData[name] = adapterData[name];
+                }
+            });
+            
+            const modelNames = Object.keys(filteredData);
+            const embeddings = Object.values(filteredData);
+            
+            console.log(`Filtered out ${allModelNames.length - modelNames.length} models with "mixed" in name`);
+            
+            // Clean model names for display
+            const cleanedNames = modelNames.map(name => {
+                // Remove prefixes
+                let cleaned = name;
+                
+                // Extract ordinal marker if present
+                let ordinalMarker = '';
+                if (/[-_]first/i.test(cleaned)) {
+                    ordinalMarker = '#1';
+                } else if (/[-_]second/i.test(cleaned)) {
+                    ordinalMarker = '#2';
+                } else if (/[-_]third/i.test(cleaned)) {
+                    ordinalMarker = '#3';
+                }
+                
+                // Remove ordinal words
+                cleaned = cleaned.replace(/[-_](first|second|third)/gi, '');
+                
+                // Convert to lowercase for processing
+                cleaned = cleaned.toLowerCase();
+                
+                // Convert to lowercase and remove common suffixes
+                cleaned = cleaned.replace(/[-_]?lora/gi, '')
+                                .replace(/[-_]\d+[-_]?0\.0+\d*/g, '') // Remove learning rates like -2-0.0001
+                                .replace(/[-_]\d+[-_]\d+e[-_]\d+/g, '') // Remove scientific notation like -2-5e-06
+                                .toLowerCase();
+                
+                // Handle specific dataset patterns with comprehensive if-else logic
+                
+                // Math domain
+                if (cleaned.includes('gsm8k')) {
+                    cleaned = 'gsm8k';
+                } else if (cleaned.includes('metamath') && cleaned.includes('dpo')) {
+                    cleaned = 'metamath-dpo';
+                    
+                // Legal domain
+                } else if (cleaned.includes('legalbench')) {
+                    cleaned = 'legalbench';
+                    
+                // Medical domain
+                } else if (cleaned.includes('disease') && cleaned.includes('database')) {
+                    cleaned = 'disease-database';
+                } else if (cleaned.includes('disease') && cleaned.includes('symptoms')) {
+                    cleaned = 'disease-symptoms';
+                } else if (cleaned.includes('medmcqa')) {
+                    cleaned = 'medmcqa';
+                } else if (cleaned.includes('medqa') && cleaned.includes('usmle')) {
+                    cleaned = 'medqa-usmle';
+                } else if (cleaned.includes('pubmedqa')) {
+                    cleaned = 'pubmedqa';
+                    
+                // Coding domain
+                } else if (cleaned.includes('alpaca') && cleaned.includes('java')) {
+                    cleaned = 'alpaca-java';
+                } else if (cleaned.includes('cpp') && cleaned.includes('dataset')) {
+                    cleaned = 'cpp';
+                } else if (cleaned.includes('codechef') && cleaned.includes('cpp')) {
+                    cleaned = 'codechef-cpp';
+                } else if (cleaned.includes('codechef') && cleaned.includes('python')) {
+                    cleaned = 'codechef-python';
+                } else if (cleaned.includes('codeforces') && cleaned.includes('cpp')) {
+                    cleaned = 'codeforces-cpp';
+                } else if (cleaned.includes('codeforces') && cleaned.includes('python')) {
+                    cleaned = 'codeforces-python';
+                } else if (cleaned.includes('hackerearth') && cleaned.includes('cpp')) {
+                    cleaned = 'hackerearth-cpp';
+                } else if (cleaned.includes('hackerearth') && cleaned.includes('python')) {
+                    cleaned = 'hackerearth-python';
+                } else if (cleaned.includes('evol') && cleaned.includes('java')) {
+                    cleaned = 'evol-instruct-java';
+                } else if (cleaned.includes('mbpp')) {
+                    cleaned = 'mbpp';
+                } else if (cleaned.includes('bigcodebench')) {
+                    cleaned = 'bigcodebench';
+                } else if (cleaned.includes('code') && cleaned.includes('contests') && cleaned.includes('java')) {
+                    cleaned = 'code-contests-java';
+                    
+                // Instruction/Tulu domain
+                } else if (cleaned.includes('opc')) {
+                    cleaned = 'opc';
+                } else if (cleaned.includes('tulu') && cleaned.includes('code') && cleaned.includes('alpaca')) {
+                    cleaned = 'tulu-code-alpaca';
+                } else if (cleaned.includes('tulu') && cleaned.includes('cot')) {
+                    cleaned = 'tulu-cot';
+                } else if (cleaned.includes('tulu') && cleaned.includes('gpt4') && cleaned.includes('alpaca')) {
+                    cleaned = 'tulu-gpt4-alpaca';
+                } else if (cleaned.includes('tulu') && cleaned.includes('science')) {
+                    cleaned = 'tulu-science';
+                } else if (cleaned.includes('tulu') && cleaned.includes('sharegpt')) {
+                    cleaned = 'tulu-sharegpt';
+                    
+                // DPO/Other instruction models
+                } else if (cleaned.includes('human') && (cleaned.includes('dpo') || cleaned.includes('like'))) {
+                    cleaned = 'human-dpo';
+                } else if (cleaned.includes('ultrafeedback')) {
+                    cleaned = 'ultrafeedback';
+                    
+                // Reasoning domain
+                } else if (cleaned.includes('hellaswag')) {
+                    cleaned = 'hellaswag';
+                    
+                } else {
+                    // Fallback: clean up remaining text
+                    cleaned = cleaned.replace(/[-_]\d+/g, '') // Remove remaining numbers
+                                    .replace(/[-_]/g, '-')
+                                    .replace(/\s+/g, '-')
+                                    .trim();
+                }
+                
+                // Add ordinal marker if present
+                if (ordinalMarker) {
+                    cleaned = cleaned + ' ' + ordinalMarker;
+                }
+                
+                return cleaned;
+            });
+            
+            // Handle duplicates by adding #1, #2, etc. for models with same name but no ordinal
+            const nameCount = {};
+            const finalNames = cleanedNames.map((name, index) => {
+                // Check if this name already has an ordinal marker
+                if (name.includes('#')) {
+                    return name;
+                }
+                
+                // Count occurrences of this exact name
+                if (!nameCount[name]) {
+                    // First occurrence - count how many times this name appears total
+                    const totalCount = cleanedNames.filter(n => n === name).length;
+                    if (totalCount > 1) {
+                        nameCount[name] = 1;
+                        return name + ' #1';
+                    } else {
+                        return name; // Single occurrence, no numbering needed
+                    }
+                } else {
+                    // Subsequent occurrence
+                    nameCount[name]++;
+                    return name + ' #' + nameCount[name];
+                }
+            });
+
+            // Extract domains from model names
+            const domains = modelNames.map(name => {
+                const nameLower = name.toLowerCase();
+                if (nameLower.includes('legalbench')) return 'Legal';
+                if (nameLower.includes('gsm8k')) return 'Math';
+                if (nameLower.includes('pubmedqa') || nameLower.includes('medmcqa') || 
+                    nameLower.includes('medqa') || nameLower.includes('disease')) return 'Medical';
+                if (nameLower.includes('hellaswag')) return 'Reasoning';
+                if (nameLower.includes('opc') || nameLower.includes('codechef') || 
+                    nameLower.includes('codeforces') || nameLower.includes('cpp') || 
+                    nameLower.includes('java') || nameLower.includes('python') || 
+                    nameLower.includes('code') || nameLower.includes('mbpp')) return 'Coding';
+                if (nameLower.includes('tulu')) return 'Tulu';
+                return 'Preference Alignment';
+            });
+
+            // Calculate distance matrix using cosine similarity
+            const n = embeddings.length;
+            const distanceMatrix = Array(n).fill().map(() => Array(n).fill(0));
+            
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (i === j) {
+                        distanceMatrix[i][j] = 0;
+                    } else {
+                        const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
+                        // Normalize similarity to [0, 1] and convert to distance
+                        const normalizedSimilarity = (similarity + 1) / 2;
+                        distanceMatrix[i][j] = Math.max(0, Math.min(1, 1 - normalizedSimilarity));
+                    }
+                }
+            }
+
+            return {
+                names: finalNames,
+                originalNames: modelNames,
+                domains: domains,
+                distanceMatrix: distanceMatrix
+            };
+        }
+
+        // Load adapter delta embeddings
+        fetch('adapter_delta_embeddings_65models.json')
+            .then(response => response.json())
+            .then(adapterData => {
+                console.log('Loaded adapter delta embeddings for', Object.keys(adapterData).length, 'models');
+                modelData = processAdapterEmbeddings(adapterData);
+                console.log('Processed data:', modelData.names.length, 'models');
+                
+                // Hide loading message and initialize the 3D visualization
+                document.getElementById('loading-message').style.display = 'none';
+                initializeGraph();
+            })
+            .catch(error => {
+                console.error('Error loading adapter delta embeddings:', error);
+                document.body.innerHTML += '<div style="color: red; text-align: center; padding: 20px;">Error loading model data. Please ensure adapter_delta_embeddings_65models.json is available.</div>';
+            });
+
+        // Three.js 3D Visualization Implementation
+        let scene, camera, renderer, controls;
+        let nodes = [];
+        let textSprites = []; // Store text sprites for dimming
+        let connections = [];
+        let selectedNode = null;
+        let mousePosition = new THREE.Vector2();
+        let raycaster = new THREE.Raycaster();
+        let tooltip;
+        let currentThreshold = 0.3;
+
+        // Proper Classical Multidimensional Scaling for distance-based positioning
+        function computeMDS3D(distanceMatrix) {
+            const n = distanceMatrix.length;
+            
+            // Step 1: Create squared distance matrix
+            const D2 = [];
+            for (let i = 0; i < n; i++) {
+                D2[i] = [];
+                for (let j = 0; j < n; j++) {
+                    D2[i][j] = distanceMatrix[i][j] * distanceMatrix[i][j];
+                }
+            }
+            
+            // Step 2: Apply double centering to get Gram matrix
+            const rowMeans = D2.map(row => row.reduce((sum, val) => sum + val, 0) / n);
+            const grandMean = rowMeans.reduce((sum, val) => sum + val, 0) / n;
+            
+            const B = [];
+            for (let i = 0; i < n; i++) {
+                B[i] = [];
+                for (let j = 0; j < n; j++) {
+                    B[i][j] = -0.5 * (D2[i][j] - rowMeans[i] - rowMeans[j] + grandMean);
+                }
+            }
+            
+            // Step 3: Find the top 3 eigenvectors using power iteration
+            const eigenvectors = [];
+            const eigenvalues = [];
+            
+            // Create a copy of B for each eigenvector computation
+            let currentMatrix = B.map(row => [...row]);
+            
+            for (let dim = 0; dim < 3; dim++) {
+                // Power iteration to find dominant eigenvector
+                let v = new Array(n).fill(0).map(() => Math.random() - 0.5);
+                
+                for (let iter = 0; iter < 100; iter++) {
+                    // Matrix-vector multiplication
+                    const newV = new Array(n).fill(0);
+                    for (let i = 0; i < n; i++) {
+                        for (let j = 0; j < n; j++) {
+                            newV[i] += currentMatrix[i][j] * v[j];
+                        }
+                    }
+                    
+                    // Normalize
+                    const norm = Math.sqrt(newV.reduce((sum, val) => sum + val * val, 0));
+                    if (norm > 1e-10) {
+                        for (let i = 0; i < n; i++) {
+                            v[i] = newV[i] / norm;
+                        }
+                    }
+                }
+                
+                // Calculate eigenvalue
+                let eigenvalue = 0;
+                for (let i = 0; i < n; i++) {
+                    let sum = 0;
+                    for (let j = 0; j < n; j++) {
+                        sum += currentMatrix[i][j] * v[j];
+                    }
+                    eigenvalue += v[i] * sum;
+                }
+                
+                eigenvectors.push([...v]);
+                eigenvalues.push(Math.max(0, eigenvalue)); // Ensure non-negative
+                
+                // Deflate matrix for next eigenvector
+                for (let i = 0; i < n; i++) {
+                    for (let j = 0; j < n; j++) {
+                        currentMatrix[i][j] -= eigenvalue * v[i] * v[j];
+                    }
+                }
+            }
+            
+            // Step 4: Compute 3D coordinates
+            const positions = [];
+            const scale = 50; // Scale factor for visualization
+            
+            for (let i = 0; i < n; i++) {
+                const x = eigenvectors[0][i] * Math.sqrt(eigenvalues[0]) * scale;
+                const y = eigenvectors[1][i] * Math.sqrt(eigenvalues[1]) * scale;
+                const z = eigenvectors[2][i] * Math.sqrt(eigenvalues[2]) * scale;
+                
+                positions.push({ x, y, z });
+            }
+            
+            console.log('MDS eigenvalues:', eigenvalues);
+            console.log('MDS computed', n, 'positions');
+            
+            return positions;
+        }
+
+        function initializeGraph() {
+            if (!modelData) {
+                console.error('Model data not loaded yet');
+                return;
+            }
+            
+            const container = document.getElementById('network-graph');
+            const width = container.clientWidth;
+            const height = 600;
+
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xfafafa);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+            camera.position.set(0, 0, 18); // Even closer initial view
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio); // Use device pixel ratio for crisp rendering
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Add orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.5;
+
+            // Add lighting - adjusted for more vibrant colors
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // Add back light to illuminate the back side
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.4);
+            backLight.position.set(-10, -10, -5);
+            scene.add(backLight);
+
+            // Domain colors - Seaborn pastel palette (exact colors)
+            const domainColors = {
+                'Legal': 0xffb482,        // Pastel orange
+                'Math': 0xa1c9f4,         // Pastel blue  
+                'Medical': 0x8de5a1,      // Pastel green
+                'Reasoning': 0xff9f9b,    // Pastel red
+                'Coding': 0xd0bbff,       // Pastel purple
+                'Tulu': 0xfab0e4,         // Pastel pink
+                'Preference Alignment': 0xdebb9b  // Pastel brown
+            };
+
+            // Create 3D positions for each domain cluster - simplified layout
+            const domainPositions = {
+                'Legal': { x: -25, y: 15, z: 0 },
+                'Math': { x: 25, y: 15, z: 0 },
+                'Medical': { x: 0, y: -20, z: 20 },
+                'Reasoning': { x: -20, y: -15, z: -15 },
+                'Coding': { x: 20, y: 0, z: -20 },
+                'Tulu': { x: 0, y: 20, z: -10 },
+                'Preference Alignment': { x: 0, y: -25, z: 0 }
+            };
+
+            // Create nodes positioned by actual pairwise distances using MDS
+            const nodeGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+            
+            // Compute 3D positions using multidimensional scaling on distance matrix
+            const positions3D = computeMDS3D(modelData.distanceMatrix);
+            
+            modelData.names.forEach((name, i) => {
+                const domain = modelData.domains[i];
+                const position = positions3D[i];
+
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: domainColors[domain],
+                    shininess: 80,
+                    transparent: true,
+                    opacity: 0.95,
+                    emissive: domainColors[domain],
+                    emissiveIntensity: 0.1
+                });
+                
+                const nodeMesh = new THREE.Mesh(nodeGeometry, material);
+                nodeMesh.position.set(position.x, position.y, position.z);
+                nodeMesh.castShadow = true;
+                nodeMesh.receiveShadow = true;
+                
+                                // Store metadata
+                nodeMesh.userData = {
+                id: i,
+                name: name,
+                    originalName: modelData.originalNames[i],
+                    domain: domain,
+                    originalColor: domainColors[domain],
+                    originalScale: 1
+                };
+
+                scene.add(nodeMesh);
+                nodes.push(nodeMesh);
+
+                // Add floating text labels
+                const textGeometry = new THREE.TextGeometry(name.split('#')[1] || `${domain[0]}${i}`, {
+                    font: undefined, // Will use default font
+                    size: 0.8,
+                    height: 0.1
+                });
+                
+                // Create text labels with full names (no truncation)
+                const textSprite = createTextSprite(name, nodeMesh.position);
+                textSprites.push(textSprite);
+            });
+
+            // Create connections between nearby nodes
+            createConnections();
+
+
+
+            // Add mouse interaction
+            setupMouseInteraction();
+
+            // Create tooltip
+            createTooltip();
+
+            // Start animation loop
+            animate();
+        }
+
+        function createTextSprite(text, position) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            // Set canvas size with higher resolution for better quality
+            const fontSize = 48; // Larger font size for better quality
+            context.font = `${fontSize}px Arial, sans-serif`;
+            
+            // Measure text to size canvas appropriately
+            const metrics = context.measureText(text);
+            canvas.width = metrics.width + 20;
+            canvas.height = fontSize + 10;
+            
+            // Enable better text rendering
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            
+            // Reapply font after resizing canvas
+            context.font = `${fontSize}px Arial, sans-serif`;
+            context.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            context.textBaseline = 'middle';
+            context.fillText(text, 10, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            
+            const spriteMaterial = new THREE.SpriteMaterial({ 
+                map: texture,
+                transparent: true,
+                sizeAttenuation: true // Changed to true so text scales with zoom
+            });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            
+            // Position label with 1.5 offset as requested
+            sprite.position.set(position.x + 1.5, position.y + 1.5, position.z);
+            
+            // Scale for 3D space (with sizeAttenuation: true)
+            const scale = 0.012; // Adjusted for 3D space scaling
+            sprite.scale.set(canvas.width * scale, canvas.height * scale, 1);
+            scene.add(sprite);
+            return sprite; // Return sprite for tracking
+        }
+
+        function createConnections() {
+            // Remove existing connections
+            connections.forEach(connection => {
+                scene.remove(connection);
+            });
+            connections = [];
+
+            const lineGeometry = new THREE.BufferGeometry();
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+                color: 0x999999, 
+                transparent: true, 
+                opacity: 0.3 
+            });
+
+            const positions = [];
+
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    if (modelData.distanceMatrix[i][j] < currentThreshold) {
+                        positions.push(
+                            nodes[i].position.x, nodes[i].position.y, nodes[i].position.z,
+                            nodes[j].position.x, nodes[j].position.y, nodes[j].position.z
+                        );
+                    }
+                }
+            }
+
+            if (positions.length > 0) {
+                lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+                scene.add(lines);
+                connections.push(lines);
+            }
+        }
+
+        function createDomainLabels(positions, colors) {
+            Object.keys(positions).forEach(domain => {
+                const pos = positions[domain];
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                context.font = 'bold 32px Arial';
+                context.fillStyle = `#${colors[domain].toString(16).padStart(6, '0')}`;
+                context.fillText(domain, 0, 32);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                
+                sprite.position.set(pos.x, pos.y + 8, pos.z);
+                sprite.scale.set(8, 4, 1);
+                scene.add(sprite);
+            });
+        }
+
+
+
+        function setupMouseInteraction() {
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('click', onMouseClick);
+            renderer.domElement.addEventListener('dblclick', onMouseDoubleClick);
+        }
+
+        let isHighlightingDomains = false; // Track if we're highlighting domains
+
+        function onMouseMove(event) {
+            // If a node is currently selected or domains are being highlighted, ignore hover effects
+            if (selectedNode || isHighlightingDomains) {
+                return;
+            }
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mousePosition.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mousePosition.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mousePosition, camera);
+            const intersects = raycaster.intersectObjects(nodes);
+
+            // Reset all nodes
+            nodes.forEach(node => {
+                node.scale.setScalar(node.userData.originalScale);
+                node.material.opacity = 0.9;
+            });
+
+            if (intersects.length > 0) {
+                const hoveredNode = intersects[0].object;
+                hoveredNode.scale.setScalar(1.5);
+                hoveredNode.material.opacity = 1.0;
+                
+                // Show tooltip - disabled
+                // showTooltip(hoveredNode.userData, event);
+                renderer.domElement.style.cursor = 'pointer';
+            } else {
+                // hideTooltip();
+                renderer.domElement.style.cursor = 'default';
+            }
+        }
+
+        function onMouseClick(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            console.log('Mouse click detected');
+            
+            const rect = renderer.domElement.getBoundingClientRect();
+            mousePosition.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mousePosition.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            console.log('Mouse position:', mousePosition.x, mousePosition.y);
+            
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mousePosition, camera);
+            // Make raycaster more precise for smaller nodes
+            raycaster.params.Points.threshold = 0.1;
+            const intersects = raycaster.intersectObjects(nodes);
+
+            console.log('Intersects found:', intersects.length);
+
+            if (intersects.length > 0) {
+                const clickedNode = intersects[0].object.userData;
+                console.log('Clicked on node:', clickedNode.id, clickedNode.name);
+                selectNode(clickedNode);
+            } else {
+                console.log('Single click on empty space - hiding details only');
+                // Single click on empty space - only hide details panel
+                document.getElementById('node-details').classList.remove('active');
+            }
+        }
+
+        function onMouseDoubleClick(event) {
+            console.log('Double click detected');
+            
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mousePosition = new THREE.Vector2(
+                ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                -((event.clientY - rect.top) / rect.height) * 2 + 1
+            );
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mousePosition, camera);
+            raycaster.params.Points.threshold = 0.1;
+            const intersects = raycaster.intersectObjects(nodes);
+
+            if (intersects.length === 0) {
+                console.log('Double click on empty space - resetting highlights');
+                // Double click on empty space - reset highlighting
+                resetHighlighting();
+                selectedNode = null;
+                document.getElementById('node-details').classList.remove('active');
+            }
+            // If double-clicked on a node, do nothing special (single click already handled it)
+        }
+
+        function selectNode(nodeData) {
+            console.log('Selecting node:', nodeData.id, nodeData.name);
+            selectedNode = nodeData;
+            
+            // Find neighbors within threshold
+            const distances = modelData.distanceMatrix[nodeData.id].map((dist, i) => ({
+                index: i,
+                distance: dist,
+                name: modelData.names[i], // Use abbreviated names
+                originalName: modelData.originalNames[i],
+                domain: modelData.domains[i]
+            }));
+            
+            // Filter neighbors within threshold (excluding self)
+            const neighbors = distances
+                .filter((d, i) => i !== nodeData.id && d.distance < currentThreshold)
+                .sort((a, b) => a.distance - b.distance);
+            
+            console.log(`Found ${neighbors.length} neighbors within threshold ${currentThreshold}:`, 
+                       neighbors.map(n => `${n.index}:${n.name}`));
+            
+            // IMMEDIATELY highlight before updating UI
+            highlightNodeAndNeighbors(nodeData.id, neighbors);
+            
+            // Update node details panel with abbreviated name as title
+            const modelNameElement = document.getElementById('selected-model-name');
+            modelNameElement.innerHTML = `
+                <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 5px;">${nodeData.name}</div>
+                <div style="font-size: 0.8em; color: #666;">${nodeData.originalName}</div>
+            `;
+            document.getElementById('selected-domain').textContent = nodeData.domain;
+                
+            // Update neighbors list - show abbreviated names for neighbors
+            const neighborsContainer = document.getElementById('neighbors-container');
+            neighborsContainer.innerHTML = neighbors.length > 0 ? neighbors.map(n => `
+                <div class="neighbor-item">
+                    <span class="neighbor-name" title="${n.originalName}">${n.name}</span>
+                    <span class="neighbor-distance">${n.distance.toFixed(3)}</span>
+                </div>
+            `).join('') : '<div class="neighbor-item">No neighbors within threshold</div>';
+            
+            // Show details panel
+            document.getElementById('node-details').classList.add('active');
+        }
+
+        function highlightNodeAndNeighbors(selectedId, neighbors) {
+            const neighborIds = neighbors.map(n => n.index);
+            console.log('Highlighting - Selected:', selectedId, 'Neighbors:', neighborIds);
+            
+            // Force immediate highlighting of nodes
+            let selectedCount = 0, neighborCount = 0, dimmedCount = 0;
+            
+            nodes.forEach((node, index) => {
+                if (index === selectedId) {
+                    node.material.opacity = 1.0;
+                    node.scale.setScalar(1.5);
+                    if (textSprites[index]) textSprites[index].material.opacity = 1.0;
+                    selectedCount++;
+                } else if (neighborIds.includes(index)) {
+                    node.material.opacity = 0.8;
+                    node.scale.setScalar(1.5);
+                    if (textSprites[index]) textSprites[index].material.opacity = 0.8;
+                    neighborCount++;
+                } else {
+                    node.material.opacity = 0.3;
+                    node.scale.setScalar(0.8);
+                    if (textSprites[index]) textSprites[index].material.opacity = 0.3;
+                    dimmedCount++;
+                }
+            });
+            
+            console.log(`Highlighted: ${selectedCount} selected, ${neighborCount} neighbors, ${dimmedCount} dimmed`);
+            
+            // Highlight connections
+            highlightConnections(selectedId, neighborIds);
+        }
+
+        function highlightConnections(selectedId, neighborIds) {
+            // Remove existing connections
+            connections.forEach(connection => {
+                scene.remove(connection);
+            });
+            connections = [];
+            
+            const highlightPositions = [];
+            const dimmedPositions = [];
+            
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    if (modelData.distanceMatrix[i][j] < currentThreshold) {
+                        const positions = [
+                            nodes[i].position.x, nodes[i].position.y, nodes[i].position.z,
+                            nodes[j].position.x, nodes[j].position.y, nodes[j].position.z
+                        ];
+                        
+                        // Check if this connection involves the selected node or its neighbors
+                        const isSelectedConnection = (i === selectedId && neighborIds.includes(j)) || 
+                                                   (j === selectedId && neighborIds.includes(i));
+                        
+                        if (isSelectedConnection) {
+                            highlightPositions.push(...positions);
+                        } else {
+                            dimmedPositions.push(...positions);
+                        }
+                    }
+                }
+            }
+            
+            // Create dimmed connections
+            if (dimmedPositions.length > 0) {
+                const dimmedGeometry = new THREE.BufferGeometry();
+                dimmedGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dimmedPositions, 3));
+                const dimmedMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x999999,
+                    transparent: true, 
+                    opacity: 0.1
+                });
+                const dimmedLines = new THREE.LineSegments(dimmedGeometry, dimmedMaterial);
+                scene.add(dimmedLines);
+                connections.push(dimmedLines);
+            }
+            
+            // Create highlighted connections
+            if (highlightPositions.length > 0) {
+                const highlightGeometry = new THREE.BufferGeometry();
+                highlightGeometry.setAttribute('position', new THREE.Float32BufferAttribute(highlightPositions, 3));
+                const highlightMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0xff6b6b,  // Bright red for highlighted connections
+                    transparent: true, 
+                    opacity: 0.8,
+                    linewidth: 2
+                });
+                const highlightLines = new THREE.LineSegments(highlightGeometry, highlightMaterial);
+                scene.add(highlightLines);
+                connections.push(highlightLines);
+            }
+        }
+
+        function resetHighlighting() {
+            console.log('Resetting highlighting to normal state');
+            
+            // Reset all nodes and text to original state
+            nodes.forEach((node, index) => {
+                node.material.opacity = 0.95;
+                node.scale.setScalar(1.0);
+                if (textSprites[index]) textSprites[index].material.opacity = 1.0;
+            });
+            
+            console.log('Reset', nodes.length, 'nodes to normal state');
+            
+            // Recreate normal connections
+            createConnections();
+        }
+
+        function createTooltip() {
+            tooltip = document.createElement('div');
+            tooltip.className = 'node-tooltip';
+            tooltip.style.position = 'absolute';
+            tooltip.style.pointerEvents = 'none';
+            tooltip.style.display = 'none';
+            document.body.appendChild(tooltip);
+        }
+
+        function showTooltip(nodeData, event) {
+            tooltip.innerHTML = `<strong>${nodeData.originalName}</strong><br/>Domain: ${nodeData.domain}`;
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 28) + 'px';
+            tooltip.style.display = 'block';
+        }
+
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function resetZoom() {
+            controls.reset();
+            resetHighlighting();
+            selectedNode = null;
+            document.getElementById('node-details').classList.remove('active');
+        }
+
+        function updateThreshold(value) {
+            currentThreshold = parseFloat(value);
+            document.getElementById('threshold-value').textContent = parseFloat(value).toFixed(3);
+            createConnections(); // Recreate connections with new threshold
+        }
+
+        function highlightDomains() {
+            isHighlightingDomains = true; // Set flag to prevent hover interference
+            const domains = ['Legal', 'Math', 'Medical', 'Reasoning', 'Coding', 'Tulu', 'Preference Alignment'];
+            let currentDomain = 0;
+            
+            function highlightNext() {
+                const domain = domains[currentDomain];
+                
+                // Show domain name
+                const domainDisplay = document.getElementById('domain-display');
+                domainDisplay.textContent = domain;
+                domainDisplay.style.opacity = '1';
+                
+                // Get domain color for the text
+                const domainColorHex = {
+                    'Legal': '#ffb482',
+                    'Math': '#a1c9f4',
+                    'Medical': '#8de5a1',
+                    'Reasoning': '#ff9f9b',
+                    'Coding': '#d0bbff',
+                    'Tulu': '#fab0e4',
+                    'Preference Alignment': '#debb9b'
+                };
+                domainDisplay.style.color = domainColorHex[domain] || 'rgba(37, 99, 235, 0.8)';
+                
+                nodes.forEach((node, index) => {
+                    if (node.userData.domain === domain) {
+                        node.material.opacity = 1.0;
+                        node.scale.setScalar(1.2); // Scale to 1.2x like individual node selection
+                        if (textSprites[index]) textSprites[index].material.opacity = 1.0;
+                    } else {
+                        node.material.opacity = 0.2;
+                        node.scale.setScalar(0.5);
+                        if (textSprites[index]) textSprites[index].material.opacity = 0.2;
+                    }
+                });
+                
+                // Hide domain name after a moment
+                setTimeout(() => {
+                    domainDisplay.style.opacity = '0';
+                }, 800);
+                
+                currentDomain = (currentDomain + 1) % domains.length;
+                
+                if (currentDomain === 0) {
+                    setTimeout(() => {
+                        isHighlightingDomains = false; // Reset flag
+                        resetHighlighting();
+                        selectedNode = null;
+                        document.getElementById('node-details').classList.remove('active');
+                    }, 1000);
+                } else {
+                    setTimeout(highlightNext, 1000);
+                }
+            }
+            
+            highlightNext();
+        }
+
+        // Graph will be initialized after loading adapter delta embeddings
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('Page loaded, waiting for adapter data...');
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                const container = document.getElementById('network-graph');
+                const width = container.clientWidth;
+                const height = 600;
+                
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                renderer.setSize(width, height);
+            }
+        });
+
+        // Add scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('animate-in');
+                }
+            });
+        }, observerOptions);
+
+        // Observe all content sections
+        document.querySelectorAll('.method-card, .abstract-box, .key-findings').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

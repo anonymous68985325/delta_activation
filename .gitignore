@@ -1,0 +1,11 @@
+.DS_Store
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+*.tex
+*.pdf
+*.py
+1.ipynb
+paper/
+code/
+.claude/
